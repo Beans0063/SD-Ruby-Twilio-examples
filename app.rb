@@ -14,7 +14,7 @@ logger = Logger.new(STDOUT)
 if ENV['RACK_ENV']=="development"
   DataMapper.setup(:default, 'mysql://localhost/unhurler_development')
 else
-  DataMapper.setup(:default, 'mysql://ape.beanserver.net/unhurler_production')
+  DataMapper.setup(:default,  ENV['DATABASE_URL'] )
 end
 
 class Endpoint
