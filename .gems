@@ -1,3 +1,4 @@
 sinatra
 dm-core
 dm-mysql-adapter
+json
