@@ -3,6 +3,7 @@ require 'sinatra'
 require 'net/http'
 require 'logger'
 require 'dm-core'
+require 'json'
 
 # if ENV['RACK_ENV']=="development"
 #   log = Logger.new('log.txt')
@@ -67,7 +68,9 @@ def make_header_hash(endpoint)
 		v=endpoint.domain if k=="HOST"
 		result[k]=v
 	end
-	
+	result["Set-Cookie"]="unhurler_code=#{endpoint.code}"
+	#resp.gsub!(/Server: .*?\r\n/, "Set-Cookie: unhurler_code=#{endpoint.code}\r\n")
+  
 	result
 end
 
@@ -77,7 +80,7 @@ def get_endpoint
     code=request.path_info[1,request.path_info.length]
     endpoint = Endpoint.first(:code=>code)
     if endpoint==nil
-      #endpoint = Endpoint.first(:code=>req.cookies.first.value)
+      endpoint = Endpoint.first(:code=>request.cookies["unhurler_code"])
     end
     endpoint
   rescue
@@ -85,6 +88,18 @@ def get_endpoint
   end
 end
 
+def log_req(headers,endpoint)
+  p = ProxiedRequest.new(:req_data=>"#{request.request_method} #{endpoint.path}", :req_request=>"", :req_method=>request.request_method, :req_headers=>headers.to_json, :req_body=>request.env["rack.input"].read, :endpoint_id=>endpoint.id, :req_time=>Time.now,  :created_at=>Time.now)
+  p.save
+  p.id
+end
+
+def log_resp(resp,req_id)
+  p=ProxiedRequest.first(:id=>req_id)
+#  p.attributes = {:resp_headers=>resp.to_hash.to_json,:resp_status=>resp.code,:resp_body=>resp.body, :resp_time=>Time.now, :resp_response=>"#{resp.code} #{res.message}"}
+  p.attributes = {:resp_headers=>resp.to_hash.to_json,:resp_status=>resp.code,:resp_body=>resp.body, :resp_time=>Time.now, :resp_response=>"#{resp.code} #{resp.message}"}
+  result = p.save!
+end
 
 get_or_post '*' do
 #	log.debug request.path_info
@@ -92,7 +107,7 @@ get_or_post '*' do
   raise Sinatra::NotFound if endpoint.nil?
 
   headers=make_header_hash(endpoint)  
-	logger.debug headers.inspect
+	req_id=log_req(headers,endpoint)
 	
 	if request.request_method=="GET"
     req = Net::HTTP::Get.new(endpoint.path, headers)
@@ -100,27 +115,29 @@ get_or_post '*' do
     req = Net::HTTP::Get.new(endpoint.path, headers)
     #req.set_form_data({'from'=>'2005-01-01', 'to'=>'2005-03-31'}, ';')
   end
+
    #req.body_stream = request.body
    #req.content_type = request.content_type
    #req.content_length = request.content_length || 0
    @host=endpoint.domain
    @port="80"
    http = Net::HTTP.new(@host, @port)
-   res = http.request(req)
-
+   resp = http.request(req)
+   log_resp(resp,req_id)
+   #logger.debug "res: #{res.to_hash}"
    # status, headers, body = @app.call(env)
    # headers = Utils::HeaderHash.new(headers)
    # headers['Content-Type'] ||= @content_type
    # foo=[status, headers, body]
   
   #"Hello: #{env.keys.inspect}"
-  raw = request.env["rack.input"].read
-  headers = Rack::Utils::HeaderHash.new(env.keys) 
+  #raw = request.env["rack.input"].read
+  #headers = Rack::Utils::HeaderHash.new(env.keys) 
 #  log.debug headers.inspect
 #  log.debug env.inspect
 #  log.debug raw
   #{}"<Response><Say>Bye</Say></Response>"
-  res.body
+  resp.body
 end
 
 not_found do
