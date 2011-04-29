@@ -137,6 +137,10 @@ get_or_post '*' do
 #  log.debug env.inspect
 #  log.debug raw
   #{}"<Response><Say>Bye</Say></Response>"
+  
+  resp.to_hash.each do |k,v|
+    headers k=>v
+  end
   resp.body
 end
 
