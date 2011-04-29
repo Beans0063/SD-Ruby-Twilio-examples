@@ -68,7 +68,7 @@ def make_header_hash(endpoint)
 		v=endpoint.domain if k=="HOST"
 		result[k]=v
 	end
-	result["Set-Cookie"]="unhurler_code=#{endpoint.code}"
+	#result["Set-Cookie"]="unhurler_code=#{endpoint.code}"
 	#resp.gsub!(/Server: .*?\r\n/, "Set-Cookie: unhurler_code=#{endpoint.code}\r\n")
   
 	result
@@ -88,8 +88,8 @@ def get_endpoint
   end
 end
 
-def log_req(headers,endpoint)
-  p = ProxiedRequest.new(:req_data=>"#{request.request_method} #{endpoint.path}", :req_request=>"", :req_method=>request.request_method, :req_headers=>headers.to_json, :req_body=>request.env["rack.input"].read, :endpoint_id=>endpoint.id, :req_time=>Time.now,  :created_at=>Time.now)
+def log_req(headers,endpoint,path_to_request)
+  p = ProxiedRequest.new(:req_data=>path_to_request, :req_request=>"", :req_method=>request.request_method, :req_headers=>headers.to_json, :req_body=>request.env["rack.input"].read, :endpoint_id=>endpoint.id, :req_time=>Time.now,  :created_at=>Time.now)
   p.save
   p.id
 end
@@ -97,23 +97,53 @@ end
 def log_resp(resp,req_id)
   p=ProxiedRequest.first(:id=>req_id)
 #  p.attributes = {:resp_headers=>resp.to_hash.to_json,:resp_status=>resp.code,:resp_body=>resp.body, :resp_time=>Time.now, :resp_response=>"#{resp.code} #{res.message}"}
-  p.attributes = {:resp_headers=>resp.to_hash.to_json,:resp_status=>resp.code,:resp_body=>resp.body, :resp_time=>Time.now, :resp_response=>"#{resp.code} #{resp.message}"}
-  result = p.save!
+  if resp.to_hash.has_key?("content-type") && resp.to_hash["content-type"].index("audio")
+    log_body=""
+  else
+    log_body=resp.body
+  end
+  begin
+    p.attributes = {:resp_headers=>resp.to_hash.to_json,:resp_status=>resp.code,:resp_body=>log_body, :resp_time=>Time.now, :resp_response=>"#{resp.code} #{resp.message}"}
+    result = p.save!
+  rescue
+    begin
+      log_body=""
+      p.attributes = {:resp_headers=>resp.to_hash.to_json,:resp_status=>resp.code,:resp_body=>log_body, :resp_time=>Time.now, :resp_response=>"#{resp.code} #{resp.message}"}
+      result = p.save!
+    rescue
+    end
+  end
+end
+
+def request_body
+  request.env["rack.input"].read
 end
 
 get_or_post '*' do
 #	log.debug request.path_info
+  logger.debug "cookies: #{request.cookies}"
   endpoint=get_endpoint
   raise Sinatra::NotFound if endpoint.nil?
 
   headers=make_header_hash(endpoint)  
-	req_id=log_req(headers,endpoint)
+	
+	code=request.path_info[1,request.path_info.length]
+	if code==endpoint.code
+	  path_to_request=endpoint.path
+  else
+	  path_to_request=request.path_info
+  end
+	req_id=log_req(headers,endpoint,path_to_request)
 	
 	if request.request_method=="GET"
-    req = Net::HTTP::Get.new(endpoint.path, headers)
+    req = Net::HTTP::Get.new(path_to_request, headers)
   else
-    req = Net::HTTP::Get.new(endpoint.path, headers)
-    #req.set_form_data({'from'=>'2005-01-01', 'to'=>'2005-03-31'}, ';')
+#    form_data=Rack::Utils.parse_query(request_body)
+#    form_data=request.body
+    form_data=request.POST
+    #logger.debug("form_data: #{form_data}")
+    req = Net::HTTP::Post.new(path_to_request, headers)
+    req.set_form_data(form_data)
   end
 
    #req.body_stream = request.body
@@ -141,6 +171,7 @@ get_or_post '*' do
   resp.to_hash.each do |k,v|
     headers k=>v
   end
+  headers "Set-Cookie"=>"unhurler_code=#{endpoint.code}"
   resp.body
 end
 
