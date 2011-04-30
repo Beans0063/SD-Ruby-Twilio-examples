@@ -4,12 +4,27 @@ require 'net/http'
 require 'logger'
 require 'dm-core'
 require 'json'
+require 'pusher'
 
 # if ENV['RACK_ENV']=="development"
 #   log = Logger.new('log.txt')
 # else
 #   logger = Logger.new(STDOUT)
 # end
+
+#pusher config
+#DataMapper::Logger.new($stdout, :debug)
+
+if ENV['RACK_ENV']=="development"
+  Pusher.app_id = '5259'
+  Pusher.key    = '1a7b621bc0e6e22a74cb'
+  Pusher.secret = 'a6b181b9c01c00db9a85'
+else
+  Pusher.app_id = '5258'
+  Pusher.key    = '3138e29133e9f140017c'
+  Pusher.secret = '80498a2d9b158a04a450'
+end
+
 logger = Logger.new(STDOUT)
 
 if ENV['RACK_ENV']=="development"
@@ -76,16 +91,13 @@ end
 
 
 def get_endpoint
-  begin
-    code=request.path_info[1,request.path_info.length]
-    endpoint = Endpoint.first(:code=>code)
-    if endpoint==nil
-      endpoint = Endpoint.first(:code=>request.cookies["unhurler_code"])
-    end
-    endpoint
-  rescue
-    nil
+  code=request.path_info[1,request.path_info.length]
+  #logger.debug "Code: #{code}"
+  endpoint = Endpoint.first(:code=>code)
+  if endpoint==nil
+    endpoint = Endpoint.first(:code=>request.cookies["unhurler_code"])
   end
+  endpoint
 end
 
 def log_req(headers,endpoint,path_to_request)
@@ -120,9 +132,14 @@ def request_body
 end
 
 get_or_post '*' do
-#	log.debug request.path_info
-  logger.debug "cookies: #{request.cookies}"
+  #	log.debug request.path_info
+  #logger.debug "cookies: #{request.cookies}"
+#  code=request.path_info[1,request.path_info.length]
+#  logger.debug  code
+#  endpoint = Endpoint.first(:code=>code)
+ 
   endpoint=get_endpoint
+  logger.debug "endpoint: #{endpoint.inspect}"
   raise Sinatra::NotFound if endpoint.nil?
 
   headers=make_header_hash(endpoint)  
@@ -169,12 +186,35 @@ get_or_post '*' do
   #{}"<Response><Say>Bye</Say></Response>"
   
   resp.to_hash.each do |k,v|
-    headers k=>v
+    headers k=>v if !k.index("transfer-encoding")
   end
-  headers "Set-Cookie"=>"unhurler_code=#{endpoint.code}"
+  Pusher["e#{endpoint.id}"].trigger('req', { :req => req_id })
+  
+  headers "Set-Cookie"=>"unhurler_code=#{endpoint.code}" if request.user_agent.index("TwilioProxy")
+  logger.debug(resp.body)
   resp.body
 end
 
 not_found do
   "<h1>404 Not Found</h1><pre>Forwarding destination could not be found</pre>"
 end
+
+# 
+# get '/pushertest' do
+# "  <html><body><script src=""http://js.pusherapp.com/1.8/pusher.min.js""></script>
+#   <script type=""text/javascript"">
+#     var pusher = new Pusher('" + Pusher.key + "'); // uses your API KEY
+#     var channel = pusher.subscribe('test_channel');
+#     channel.bind('greet', function(data) {
+#       alert(data.greeting);
+#     });
+#   </script>
+#   PUSH</body></html>"
+# end
+# 
+# get '/pushertestmessage' do
+#   Pusher['test_channel'].trigger('greet', {
+#     :greeting => "Hello there!"
+#   })
+#   "PP"
+# end
