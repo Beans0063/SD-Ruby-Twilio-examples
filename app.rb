@@ -45,7 +45,7 @@ end
 class ProxiedRequest
   include DataMapper::Resource
   property :id,         Serial    # An auto-increment integer key
-  property :req_data,     Text
+  property :req_path,     Text
   property :req_request,     Text
   property :req_method, Text
   property :req_headers,     Text
@@ -101,7 +101,7 @@ def get_endpoint
 end
 
 def log_req(headers,endpoint,path_to_request)
-  p = ProxiedRequest.new(:req_data=>path_to_request, :req_request=>"", :req_method=>request.request_method, :req_headers=>headers.to_json, :req_body=>request.env["rack.input"].read, :endpoint_id=>endpoint.id, :req_time=>Time.now,  :created_at=>Time.now)
+  p = ProxiedRequest.new(:req_path=>path_to_request, :req_request=>"", :req_method=>request.request_method, :req_headers=>headers.to_json, :req_body=>request.env["rack.input"].read, :endpoint_id=>endpoint.id, :req_time=>Time.now,  :created_at=>Time.now)
   p.save
   p.id
 end
