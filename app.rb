@@ -46,7 +46,7 @@ class ProxiedRequest
   include DataMapper::Resource
   property :id,         Serial    # An auto-increment integer key
   property :req_path,     Text
-  property :req_request,     Text
+  property :req_params,     Text
   property :req_method, Text
   property :req_headers,     Text
   property :req_body,     Text
@@ -101,9 +101,16 @@ def get_endpoint
 end
 
 def log_req(headers,endpoint,path_to_request)
-  p = ProxiedRequest.new(:req_path=>path_to_request, :req_request=>"", :req_method=>request.request_method, :req_headers=>headers.to_json, :req_body=>request.env["rack.input"].read, :endpoint_id=>endpoint.id, :req_time=>Time.now,  :created_at=>Time.now)
+  p = ProxiedRequest.new(:req_path=>path_to_request, :req_params=>params.reject{|k,v| k=="splat"}.to_json, :req_method=>request.request_method, :req_headers=>headers.to_json, :req_body=>request.env["rack.input"].read, :endpoint_id=>endpoint.id, :req_time=>Time.now,  :created_at=>Time.now)
   p.save
   p.id
+end
+
+
+def log_resp_error(e,req_id)
+  p=ProxiedRequest.first(:id=>req_id)
+  p.attributes = {:resp_status=>"500",:resp_body=>e.message, :resp_time=>Time.now, :resp_response=>e.message}
+  result = p.save!
 end
 
 def log_resp(resp,req_id)
@@ -153,7 +160,11 @@ get_or_post '*' do
 	req_id=log_req(headers,endpoint,path_to_request)
 	
 	if request.request_method=="GET"
-    req = Net::HTTP::Get.new(path_to_request, headers)
+	  #logger.debug "params: #{params.inspect}"
+	  get_params=params.reject{|k,v| k=="splat"}.map{|k,v|"#{k}=#{URI.escape(v, Regexp.new("[^#{URI::PATTERN::UNRESERVED}]"))}"}.join("&")
+	  get_params= "?" + get_params if get_params!=""
+	  #logger.debug"params: #{"#{path_to_request}#{get_params}"}"
+    req = Net::HTTP::Get.new("#{path_to_request}#{get_params}", headers)
   else
 #    form_data=Rack::Utils.parse_query(request_body)
 #    form_data=request.body
@@ -169,30 +180,28 @@ get_or_post '*' do
    @host=endpoint.domain
    @port="80"
    http = Net::HTTP.new(@host, @port)
-   resp = http.request(req)
-   log_resp(resp,req_id)
-   #logger.debug "res: #{res.to_hash}"
-   # status, headers, body = @app.call(env)
-   # headers = Utils::HeaderHash.new(headers)
-   # headers['Content-Type'] ||= @content_type
-   # foo=[status, headers, body]
-  
-  #"Hello: #{env.keys.inspect}"
-  #raw = request.env["rack.input"].read
-  #headers = Rack::Utils::HeaderHash.new(env.keys) 
-#  log.debug headers.inspect
-#  log.debug env.inspect
-#  log.debug raw
-  #{}"<Response><Say>Bye</Say></Response>"
-  
-  resp.to_hash.each do |k,v|
-    headers k=>v if !k.index("transfer-encoding")
-  end
-  Pusher["e#{endpoint.id}"].trigger('req', { :req => req_id })
-  
-  headers "Set-Cookie"=>"unhurler_code=#{endpoint.code}" if request.user_agent.index("TwilioProxy")
-  logger.debug(resp.body)
-  resp.body
+
+
+#   begin
+     resp = http.request(req)
+     log_resp(resp,req_id)
+
+     resp.to_hash.each do |k,v|
+       headers k=>v if !k.index("transfer-encoding")
+     end
+     Pusher["e#{endpoint.id}"].trigger('req', { :req => req_id })
+
+     headers "Set-Cookie"=>"unhurler_code=#{endpoint.code}" if request.user_agent.index("TwilioProxy")
+     logger.debug(resp.body)
+     resp.body
+   # rescue Exception=>e # Timeout::Error, Errno::EINVAL, Errno::ECONNRESET, EOFError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError, Net::ProtocolError => e
+   #   status 500
+   #   "Twilio debugger encountered an error: #{e.message}"
+   #   log_resp_error(e,req_id)
+   #   logger.error  e.backtrace  
+   # end
+   
+
 end
 
 not_found do
@@ -218,3 +227,16 @@ end
 #   })
 #   "PP"
 # end
+   #logger.debug "res: #{res.to_hash}"
+   # status, headers, body = @app.call(env)
+   # headers = Utils::HeaderHash.new(headers)
+   # headers['Content-Type'] ||= @content_type
+   # foo=[status, headers, body]
+  
+  #"Hello: #{env.keys.inspect}"
+  #raw = request.env["rack.input"].read
+  #headers = Rack::Utils::HeaderHash.new(env.keys) 
+#  log.debug headers.inspect
+#  log.debug env.inspect
+#  log.debug raw
+  #{}"<Response><Say>Bye</Say></Response>"
