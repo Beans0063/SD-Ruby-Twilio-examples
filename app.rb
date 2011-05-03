@@ -193,7 +193,7 @@ get_or_post '*' do
 
      headers "Set-Cookie"=>"unhurler_code=#{endpoint.code}" if request.user_agent.index("TwilioProxy")
      logger.debug(resp.body)
-     resp.body
+     print_body_with_modified_hosts(resp.body, endpoint)
    # rescue Exception=>e # Timeout::Error, Errno::EINVAL, Errno::ECONNRESET, EOFError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError, Net::ProtocolError => e
    #   status 500
    #   "Twilio debugger encountered an error: #{e.message}"
@@ -202,6 +202,12 @@ get_or_post '*' do
    # end
    
 
+end
+
+def print_body_with_modified_hosts(body,endpoint)
+  replace1=body.gsub("http://#{endpoint.domain}/","/")
+  replace2=replace1.gsub("https://#{endpoint.domain}/","/")
+  replace2
 end
 
 not_found do
