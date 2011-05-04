@@ -208,7 +208,8 @@ end
 def print_body_with_modified_hosts(body,endpoint)
   replace1=body.gsub("http://#{endpoint.domain}/","/")
   replace2=replace1.gsub("https://#{endpoint.domain}/","/")
-  replace2
+  replace3=replace2.gsub("http://#{endpoint.domain}:#{endpoint.port}/","/")
+  replace3
 end
 
 not_found do
