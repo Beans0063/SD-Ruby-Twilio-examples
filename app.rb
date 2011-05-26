@@ -42,6 +42,8 @@ class Endpoint
   property :path,      String
   property :scheme,      String
   property :port,      String
+  property :user,      String
+  property :pass,      String
 end
 class ProxiedRequest
   include DataMapper::Resource
@@ -180,6 +182,9 @@ get_or_post '*' do
    #req.content_length = request.content_length || 0
    @host=endpoint.domain
    @port=endpoint.port
+   req.basic_auth endpoint.user, endpoint.pass if endpoint.user!=nil
+   
+   
    http = Net::HTTP.new(@host, @port)
 
 
