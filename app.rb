@@ -13,7 +13,7 @@ require 'pusher'
 # end
 
 #pusher config
-#DataMapper::Logger.new($stdout, :debug)
+DataMapper::Logger.new($stdout, :debug) if ENV['RACK_ENV']=="development"
 
 if ENV['RACK_ENV']=="development"
   Pusher.app_id = '5259'
@@ -61,6 +61,7 @@ class ProxiedRequest
   property :resp_body, Text
   property :resp_status, Text
   property :resp_response, Text
+  property :call_sid, Text
 end
 
 DataMapper.finalize
@@ -94,17 +95,22 @@ end
 
 
 def get_endpoint
+#  puts "headers: #{env.inspect}"
   code=request.path_info[1,request.path_info.length]
   #logger.debug "Code: #{code}"
   endpoint = Endpoint.first(:code=>code)
   if endpoint==nil
     endpoint = Endpoint.first(:code=>request.cookies["unhurler_code"])
   end
+  if endpoint==nil
+    parent_call = ProxiedRequest.first(:call_sid=>params[:ParentCallSid])
+    endpoint = Endpoint.first(:id=>parent_call.endpoint_id) if parent_call!=nil
+  end
   endpoint
 end
 
 def log_req(headers,endpoint,path_to_request)
-  p = ProxiedRequest.new(:req_path=>path_to_request, :req_params=>params.reject{|k,v| k=="splat"}.to_json, :req_method=>request.request_method, :req_headers=>headers.to_json, :req_body=>request.env["rack.input"].read, :endpoint_id=>endpoint.id, :req_time=>Time.now,  :created_at=>Time.now)
+  p = ProxiedRequest.new(:req_path=>path_to_request, :req_params=>params.reject{|k,v| k=="splat"}.to_json, :req_method=>request.request_method, :req_headers=>headers.to_json, :req_body=>request.env["rack.input"].read, :endpoint_id=>endpoint.id, :req_time=>Time.now,  :created_at=>Time.now, :call_sid=>params[:CallSid])
   p.save
   p.id
 end
@@ -173,6 +179,11 @@ get_or_post '*' do
 #    form_data=request.body
     form_data=request.POST
     #logger.debug("form_data: #{form_data}")
+    # if path_to_request.index("?")
+    #   path_to_request = "#{path_to_request}&unhurler_code=#{endpoint.id}" 
+    # else
+    #   path_to_request = "#{path_to_request}?unhurler_code=#{endpoint.id}" 
+    # end
     req = Net::HTTP::Post.new(path_to_request, headers)
     req.set_form_data(form_data)
   end
@@ -198,6 +209,7 @@ get_or_post '*' do
      Pusher["e#{endpoint.id}"].trigger('req', { :req => req_id })
 
      headers "Set-Cookie"=>"unhurler_code=#{endpoint.code}" if request.user_agent.index("TwilioProxy")
+     #logger.debug ("headers: #{resp.to_hash.inspect}")
      logger.debug(resp.body)
      print_body_with_modified_hosts(resp.body, endpoint)
    # rescue Exception=>e # Timeout::Error, Errno::EINVAL, Errno::ECONNRESET, EOFError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError, Net::ProtocolError => e
@@ -214,6 +226,7 @@ def print_body_with_modified_hosts(body,endpoint)
   replace1=body.gsub("http://#{endpoint.domain}/","/")
   replace2=replace1.gsub("https://#{endpoint.domain}/","/")
   replace3=replace2.gsub("http://#{endpoint.domain}:#{endpoint.port}/","/")
+  #number_urls=replace3.gsub (url=".*")
   replace3
 end
 
