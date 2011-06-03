@@ -2,3 +2,4 @@ sinatra
 dm-core
 dm-mysql-adapter
 pusher
+twilio-ruby
